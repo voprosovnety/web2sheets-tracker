@@ -19,7 +19,7 @@ from . import scheduler as schedmod
 log = get_logger("main")
 
 
-def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False) -> int:
+def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False, price_delta_pct: float | None = None, alert_on_availability: bool | None = None) -> int:
     """Fetch the URL once, parse key fields, optionally write to Google Sheets and notify."""
     resp = http_get(url)
     html = resp.text
@@ -59,7 +59,7 @@ def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_a
 
     # Compare with previous snapshot from the sheet (if any)
     prev = sheets.get_last_row_by_url(url)
-    changed, summary = diff_product(prev, data)
+    changed, summary = diff_product(prev, data, price_delta_override=price_delta_pct, alert_avail_override=alert_on_availability)
     log.info(f"Diff: {summary}")
 
     if write_to_sheet:
@@ -119,10 +119,20 @@ def cmd_run_list(write_to_sheet: bool, notify_telegram: bool, sleep_seconds: flo
         return 0
 
     log.info("Processing %d URL(s) from Inputs sheet...", len(urls))
-    for i, url in enumerate(urls, 1):
+    for i, cfg in enumerate(urls, 1):
+        url = cfg["url"]
+        if not cfg.get("enabled", True):
+            log.info("[%d/%d] %s (disabled)", i, len(urls), url)
+            continue
         log.info("[%d/%d] %s", i, len(urls), url)
         try:
-            cmd_run_once(url, write_to_sheet, notify_telegram)
+            cmd_run_once(
+                url,
+                write_to_sheet,
+                notify_telegram,
+                price_delta_pct=cfg.get("price_delta_pct"),
+                alert_on_availability=cfg.get("alert_on_availability"),
+            )
         except Exception as e:
             log.warning("Run failed for %s: %r", url, e)
             try:

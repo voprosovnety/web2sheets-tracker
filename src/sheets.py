@@ -106,15 +106,16 @@ def get_last_row_by_url(source_url: str) -> Optional[Dict[str, str]]:
 
 
 # --- Inputs sheet support ---
-def get_input_urls() -> List[str]:
-    """Read a list of URLs from a dedicated inputs worksheet.
+def get_input_urls() -> List[Dict[str, object]]:
+    """Read list of URL configs from Inputs worksheet.
 
     Expected header (case-insensitive):
-      - url           (required)
-      - enabled       (optional, truthy values: 1, true, yes, y)
+      - url                  (required)
+      - enabled              (optional, truthy values: 1, true, yes, y)
+      - price_delta_pct      (optional, float)
+      - alert_on_availability(optional, truthy values)
 
-    Worksheet name is taken from INPUT_SHEET_NAME env var (default: "Inputs").
-    Rows with empty or invalid URLs are ignored.
+    Returns list of dicts: {url, enabled, price_delta_pct, alert_on_availability}
     """
     sheet_id = os.getenv("GOOGLE_SHEET_ID")
     if not sheet_id:
@@ -128,7 +129,7 @@ def get_input_urls() -> List[str]:
         ws = sh.worksheet(ws_name)
     except Exception as e:
         raise RuntimeError(
-            f"Inputs worksheet '{ws_name}' not found. Create it with a header row: 'url, enabled'"
+            f"Inputs worksheet '{ws_name}' not found. Create it with header: url, enabled, price_delta_pct, alert_on_availability"
         ) from e
 
     values = ws.get_all_values()
@@ -142,8 +143,10 @@ def get_input_urls() -> List[str]:
         raise RuntimeError("Inputs sheet must have a 'url' column in the header row") from e
 
     enabled_idx = header.index("enabled") if "enabled" in header else None
+    price_delta_idx = header.index("price_delta_pct") if "price_delta_pct" in header else None
+    avail_idx = header.index("alert_on_availability") if "alert_on_availability" in header else None
 
-    urls: List[str] = []
+    configs: List[Dict[str, object]] = []
     truthy = {"1", "true", "yes", "y"}
 
     for row in values[1:]:
@@ -152,14 +155,36 @@ def get_input_urls() -> List[str]:
         url = (row[url_idx] or "").strip()
         if not url:
             continue
+
+        enabled = True
         if enabled_idx is not None:
             flag = (row[enabled_idx] or "").strip().lower() if enabled_idx < len(row) else ""
             if flag and flag not in truthy:
-                # explicitly disabled
-                continue
-        urls.append(url)
+                enabled = False
 
-    return urls
+        price_delta_pct: float | None = None
+        if price_delta_idx is not None and price_delta_idx < len(row):
+            try:
+                price_delta_pct = float(row[price_delta_idx]) if row[price_delta_idx] else None
+            except ValueError:
+                price_delta_pct = None
+
+        alert_on_avail: bool | None = None
+        if avail_idx is not None and avail_idx < len(row):
+            flag = (row[avail_idx] or "").strip().lower()
+            if flag:
+                alert_on_avail = flag in truthy
+
+        configs.append(
+            {
+                "url": url,
+                "enabled": enabled,
+                "price_delta_pct": price_delta_pct,
+                "alert_on_availability": alert_on_avail,
+            }
+        )
+
+    return configs
 
 
 # --- Logs sheet support ---

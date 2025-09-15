@@ -56,7 +56,7 @@ def _parse_price_to_float(p: Optional[str]) -> Optional[float]:
         return None
 
 
-def diff_product(prev: Product | None, curr: Product) -> Tuple[bool, str]:
+def diff_product(prev: Product | None, curr: Product, price_delta_override: float | None = None, alert_avail_override: bool | None = None) -> Tuple[bool, str]:
     """Compare key fields with thresholds and toggles.
 
     Checks price change with a configurable percentage threshold (PRICE_DELTA_PCT)
@@ -65,12 +65,19 @@ def diff_product(prev: Product | None, curr: Product) -> Tuple[bool, str]:
     Returns (changed, summary). If `prev` is None (first snapshot), we report a
     short summary but do not treat it as a change.
     """
-    # Config from environment
-    try:
-        price_delta_pct = float(os.getenv("PRICE_DELTA_PCT", "0").strip() or "0")
-    except ValueError:
-        price_delta_pct = 0.0
-    alert_on_avail = (os.getenv("ALERT_ON_AVAILABILITY", "true").strip().lower() in TRUTHY)
+    # Config from environment or overrides
+    if price_delta_override is not None:
+        price_delta_pct = price_delta_override
+    else:
+        try:
+            price_delta_pct = float(os.getenv("PRICE_DELTA_PCT", "0").strip() or "0")
+        except ValueError:
+            price_delta_pct = 0.0
+
+    if alert_avail_override is not None:
+        alert_on_avail = alert_avail_override
+    else:
+        alert_on_avail = (os.getenv("ALERT_ON_AVAILABILITY", "true").strip().lower() in TRUTHY)
 
     if not prev:
         fields = ("price", "availability")
