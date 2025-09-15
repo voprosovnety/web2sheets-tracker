@@ -9,6 +9,7 @@ from .fetch import http_get
 from .parse.generic import extract_title
 from .parse.amazon import parse_product as parse_amazon
 from .parse.books_toscrape import parse_product as parse_books
+from .parse.ebay import parse_product as parse_ebay
 from . import sheets
 from .sheets import append_log
 from .diff import diff_product
@@ -35,6 +36,10 @@ def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_a
         # Fallback title via generic parser
         data["title"] = data.get("title") or (extract_title(html) or "<no title>")
         log.info("Parsed (Amazon):")
+    elif "ebay." in host:
+        data = parse_ebay(html)
+        data["title"] = data.get("title") or (extract_title(html) or "<no title>")
+        log.info("Parsed (eBay):")
     else:
         # Fallback: only title
         data = {
