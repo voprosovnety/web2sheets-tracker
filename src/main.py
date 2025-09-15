@@ -10,6 +10,7 @@ from .parse.generic import extract_title
 from .parse.amazon import parse_product as parse_amazon
 from .parse.books_toscrape import parse_product as parse_books
 from . import sheets
+from .sheets import append_log
 from .diff import diff_product
 from .alerts import send_telegram_message
 from . import scheduler as schedmod
@@ -65,6 +66,18 @@ def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_a
         msg = f"{prefix} {title}\n{summary}\n{url}"
         send_telegram_message(msg)
 
+    try:
+        append_log(
+            url=url,
+            status=str(status),
+            title=data.get("title") or "<no title>",
+            summary=summary,
+            wrote=bool(write_to_sheet),
+            alerted=bool(notify_telegram and (changed or notify_always)),
+        )
+    except Exception as e:
+        log.warning("append_log failed: %r", e)
+
     return 0
 
 
@@ -76,6 +89,18 @@ def _job_run_once(url: str, write_to_sheet: bool, notify_telegram: bool) -> None
         cmd_run_once(url, write_to_sheet, notify_telegram)
     except Exception as e:
         log.warning("Scheduled job failed: %r", e)
+        try:
+            append_log(
+                url=url,
+                status="error",
+                title="(scheduler job)",
+                summary="Scheduled job failed",
+                wrote=False,
+                alerted=False,
+                error=str(e),
+            )
+        except Exception:
+            pass
 
 
 # Run over a list of URLs from the Inputs sheet
@@ -95,6 +120,18 @@ def cmd_run_list(write_to_sheet: bool, notify_telegram: bool, sleep_seconds: flo
             cmd_run_once(url, write_to_sheet, notify_telegram)
         except Exception as e:
             log.warning("Run failed for %s: %r", url, e)
+            try:
+                append_log(
+                    url=url,
+                    status="error",
+                    title="(run_list)",
+                    summary="Run failed",
+                    wrote=bool(write_to_sheet),
+                    alerted=bool(notify_telegram),
+                    error=str(e),
+                )
+            except Exception:
+                pass
         time.sleep(max(0.0, sleep_seconds))
     return 0
 

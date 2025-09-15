@@ -160,3 +160,53 @@ def get_input_urls() -> List[str]:
         urls.append(url)
 
     return urls
+
+
+# --- Logs sheet support ---
+def append_log(
+    url: str,
+    status: str,
+    title: str,
+    summary: str,
+    wrote: bool,
+    alerted: bool,
+    error: Optional[str] = None,
+) -> None:
+    """
+    Append a log entry into a Logs worksheet (name from LOG_SHEET_NAME env, default "Logs").
+    Header: timestamp | url | status | title | summary | wrote | alerted | error
+    """
+    import datetime
+
+    sheet_id = os.getenv("GOOGLE_SHEET_ID")
+    if not sheet_id:
+        log.warning("No GOOGLE_SHEET_ID set, skip append_log.")
+        return
+
+    ws_name = os.getenv("LOG_SHEET_NAME", "Logs")
+    client = _get_client()
+    sh = client.open_by_key(sheet_id)
+
+    try:
+        ws = sh.worksheet(ws_name)
+    except Exception:
+        # Create if missing
+        ws = sh.add_worksheet(title=ws_name, rows="100", cols="8")
+
+    header = ["timestamp", "url", "status", "title", "summary", "wrote", "alerted", "error"]
+    _ensure_header(ws, header)
+
+    ts = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    row = [
+        ts,
+        url,
+        status,
+        title,
+        summary,
+        "yes" if wrote else "no",
+        "yes" if alerted else "no",
+        error or "",
+    ]
+    ws.append_row(row, value_input_option="USER_ENTERED")
+    log.info("Log row appended.")
