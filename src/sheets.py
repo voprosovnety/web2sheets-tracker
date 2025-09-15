@@ -114,6 +114,8 @@ def get_input_urls() -> List[Dict[str, object]]:
       - enabled              (optional, truthy values: 1, true, yes, y)
       - price_delta_pct      (optional, float)
       - alert_on_availability(optional, truthy values)
+      - delay_seconds        (optional, float)
+      - user_agent           (optional, string)
 
     Returns list of dicts: {url, enabled, price_delta_pct, alert_on_availability}
     """
@@ -145,6 +147,8 @@ def get_input_urls() -> List[Dict[str, object]]:
     enabled_idx = header.index("enabled") if "enabled" in header else None
     price_delta_idx = header.index("price_delta_pct") if "price_delta_pct" in header else None
     avail_idx = header.index("alert_on_availability") if "alert_on_availability" in header else None
+    delay_idx = header.index("delay_seconds") if "delay_seconds" in header else None
+    ua_idx = header.index("user_agent") if "user_agent" in header else None
 
     configs: List[Dict[str, object]] = []
     truthy = {"1", "true", "yes", "y"}
@@ -175,12 +179,26 @@ def get_input_urls() -> List[Dict[str, object]]:
             if flag:
                 alert_on_avail = flag in truthy
 
+        delay_seconds: float | None = None
+        if delay_idx is not None and delay_idx < len(row):
+            try:
+                delay_seconds = float(row[delay_idx]) if row[delay_idx] else None
+            except ValueError:
+                delay_seconds = None
+
+        user_agent: str | None = None
+        if ua_idx is not None and ua_idx < len(row):
+            ua = (row[ua_idx] or "").strip()
+            user_agent = ua or None
+
         configs.append(
             {
                 "url": url,
                 "enabled": enabled,
                 "price_delta_pct": price_delta_pct,
                 "alert_on_availability": alert_on_avail,
+                "delay_seconds": delay_seconds,
+                "user_agent": user_agent,
             }
         )
 

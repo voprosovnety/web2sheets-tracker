@@ -32,7 +32,7 @@ _UA_POOL = [
 ]
 
 
-def http_get(url: str, headers: t.Optional[Headers] = None) -> requests.Response:
+def http_get(url: str, headers: t.Optional[Headers] = None, user_agent_override: str | None = None) -> requests.Response:
     """
     Perform a GET with retries and exponential backoff.
 
@@ -40,6 +40,8 @@ def http_get(url: str, headers: t.Optional[Headers] = None) -> requests.Response
     Raises the last exception if all attempts fail.
     """
     h: Headers = dict(_DEFAULT_HEADERS)
+    if user_agent_override:
+        h["User-Agent"] = user_agent_override
     if headers:
         h.update(headers)
 
@@ -48,7 +50,8 @@ def http_get(url: str, headers: t.Optional[Headers] = None) -> requests.Response
         try:
             log.info(f"GET {url} (attempt {attempt}/{RETRY_COUNT})")
             # Rotate UA per attempt and add a generic referer
-            h["User-Agent"] = random.choice(_UA_POOL)
+            if not user_agent_override:
+                h["User-Agent"] = random.choice(_UA_POOL)
             h.setdefault("Referer", "https://www.google.com/")
             resp = requests.get(url, headers=h, timeout=REQUEST_TIMEOUT)
             # Encoding correction: some servers send wrong or missing charset
@@ -84,7 +87,8 @@ def http_get(url: str, headers: t.Optional[Headers] = None) -> requests.Response
                 m_url = urlunparse(u2)
                 # Try mobile with a mobile UA
                 h_mobile = dict(h)
-                h_mobile["User-Agent"] = random.choice(_UA_POOL)
+                if not user_agent_override:
+                    h_mobile["User-Agent"] = random.choice(_UA_POOL)
                 resp = requests.get(m_url, headers=h_mobile, timeout=REQUEST_TIMEOUT)
                 # Re-apply encoding fix
                 enc2 = (resp.encoding or "").lower()

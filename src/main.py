@@ -20,9 +20,9 @@ from . import scheduler as schedmod
 log = get_logger("main")
 
 
-def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False, price_delta_pct: float | None = None, alert_on_availability: bool | None = None, notify_email: bool = False) -> int:
+def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False, price_delta_pct: float | None = None, alert_on_availability: bool | None = None, notify_email: bool = False, user_agent_override: str | None = None) -> int:
     """Fetch the URL once, parse key fields, optionally write to Google Sheets and notify."""
-    resp = http_get(url)
+    resp = http_get(url, user_agent_override=user_agent_override)
     html = resp.text
     status = resp.status_code
     log.info(f"Status: {status}")
@@ -138,6 +138,7 @@ def cmd_run_list(write_to_sheet: bool, notify_telegram: bool, sleep_seconds: flo
                 notify_telegram,
                 price_delta_pct=cfg.get("price_delta_pct"),
                 alert_on_availability=cfg.get("alert_on_availability"),
+                user_agent_override=cfg.get("user_agent"),
             )
         except Exception as e:
             log.warning("Run failed for %s: %r", url, e)
@@ -153,7 +154,8 @@ def cmd_run_list(write_to_sheet: bool, notify_telegram: bool, sleep_seconds: flo
                 )
             except Exception:
                 pass
-        time.sleep(max(0.0, sleep_seconds))
+        effective_sleep = cfg.get("delay_seconds") or sleep_seconds
+        time.sleep(max(0.0, effective_sleep))
     return 0
 
 
