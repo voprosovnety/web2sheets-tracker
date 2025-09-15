@@ -20,7 +20,10 @@ from . import scheduler as schedmod
 log = get_logger("main")
 
 
-def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False, price_delta_pct: float | None = None, alert_on_availability: bool | None = None, notify_email: bool = False, user_agent_override: str | None = None, write_on_change_only: bool = False) -> int:
+def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False,
+                 price_delta_pct: float | None = None, alert_on_availability: bool | None = None,
+                 notify_email: bool = False, user_agent_override: str | None = None,
+                 write_on_change_only: bool = False) -> int:
     """Fetch the URL once, parse key fields, optionally write to Google Sheets and notify."""
     resp = http_get(url, user_agent_override=user_agent_override)
     html = resp.text
@@ -60,11 +63,12 @@ def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_a
 
     # Compare with previous snapshot from the sheet (if any)
     prev = sheets.get_last_row_by_url(url)
-    changed, summary = diff_product(prev, data, price_delta_override=price_delta_pct, alert_avail_override=alert_on_availability)
+    changed, summary = diff_product(prev, data, price_delta_override=price_delta_pct,
+                                    alert_avail_override=alert_on_availability)
     log.info(f"Diff: {summary}")
 
     if write_to_sheet:
-        write_on_change_only_env = os.getenv("WRITE_ON_CHANGE_ONLY", "").strip().lower() in ("1","true","yes","y")
+        write_on_change_only_env = os.getenv("WRITE_ON_CHANGE_ONLY", "").strip().lower() in ("1", "true", "yes", "y")
         write_on_change_only_final = write_on_change_only or write_on_change_only_env
         if not (write_on_change_only_final and not changed):
             sheets.write_product_row(data)
@@ -77,7 +81,7 @@ def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_a
         msg = f"{prefix} {title}\n{summary}\n{url}"
         send_telegram_message(msg)
 
-    if notify_email or os.getenv("NOTIFY_EMAIL", "").strip().lower() in ("1","true","yes","y"):
+    if notify_email or os.getenv("NOTIFY_EMAIL", "").strip().lower() in ("1", "true", "yes", "y"):
         subject = f"[Tracker] {'Change' if changed else 'Snapshot'}: {data.get('title') or '<no title>'}"
         body = f"{summary}\n{url}"
         send_email_alert(subject, body)
@@ -161,6 +165,95 @@ def cmd_run_list(write_to_sheet: bool, notify_telegram: bool, sleep_seconds: flo
                 pass
         effective_sleep = cfg.get("delay_seconds") or sleep_seconds
         time.sleep(max(0.0, effective_sleep))
+    return 0
+
+
+def cmd_digest(notify_telegram: bool, notify_email: bool, hours: int = 24) -> int:
+    """Generate a clean digest of meaningful changes from Logs for the past N hours."""
+    from datetime import datetime, timedelta
+    from urllib.parse import urlsplit, urlunsplit
+    from .sheets import _get_client
+
+    sheet_id = os.getenv("GOOGLE_SHEET_ID")
+    log_sheet = os.getenv("LOG_SHEET_NAME", "Logs")
+    if not sheet_id:
+        log.warning("GOOGLE_SHEET_ID not set; cannot run digest")
+        return 1
+
+    client = _get_client()
+    sh = client.open_by_key(sheet_id)
+    try:
+        ws = sh.worksheet(log_sheet)
+    except Exception as e:
+        log.warning("Logs worksheet '%s' not found: %r", log_sheet, e)
+        return 1
+
+    values = ws.get_all_values()
+    if not values or len(values) < 2:
+        log.info("No logs found to build digest.")
+        return 0
+
+    header = [h.strip().lower() for h in values[0]]
+    try:
+        ts_idx = header.index("timestamp")
+        sum_idx = header.index("summary")
+        url_idx = header.index("url")
+        title_idx = header.index("title")
+    except ValueError:
+        log.warning("Logs sheet header is missing required columns")
+        return 1
+
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+
+    def _normalize_url(u: str) -> str:
+        if not u:
+            return u
+        p = urlsplit(u)
+        # strip query & fragment to merge tracking variants
+        return urlunsplit((p.scheme, p.netloc, p.path, "", ""))
+
+    # Keep the most recent meaningful entry per normalized URL
+    by_url = {}  # norm_url -> (ts, title, summary, shown_url)
+    for row in values[1:]:
+        if ts_idx >= len(row) or sum_idx >= len(row) or url_idx >= len(row):
+            continue
+        ts_str = row[ts_idx]
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", ""))
+        except Exception:
+            continue
+        if ts < cutoff:
+            continue
+
+        summary = (row[sum_idx] or "").strip()
+        if not summary:
+            continue
+        low = summary.lower()
+        # Filter out noise
+        if low.startswith("no changes") or low.startswith("initial snapshot"):
+            continue
+
+        url = (row[url_idx] or "").strip()
+        title = ((row[title_idx] if title_idx < len(row) else "") or "").strip() or "<no title>"
+
+        norm = _normalize_url(url)
+        prev = by_url.get(norm)
+        if (not prev) or (ts > prev[0]):
+            by_url[norm] = (ts, title, summary, norm)
+
+    if not by_url:
+        log.info("No meaningful changes in last %d hours", hours)
+        return 0
+
+    # Sort by time (desc) and render
+    items = sorted(by_url.values(), key=lambda x: x[0], reverse=True)
+    lines = [f"• {title} — {summary}\n  {url}" for (_, title, summary, url) in items]
+    body = "Digest of changes in last %d hours:\n%s" % (hours, "\n".join(lines))
+
+    if notify_telegram:
+        send_telegram_message(body)
+    if notify_email or os.getenv("NOTIFY_EMAIL", "").strip().lower() in ("1", "true", "yes", "y"):
+        send_email_alert("[Tracker] Daily Digest", body)
     return 0
 
 
@@ -252,6 +345,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Send Telegram alert on change.",
     )
 
+    # digest
+    p_digest = sub.add_parser("digest", help="Send a digest of recent changes")
+    p_digest.add_argument("--notify-telegram", action="store_true", help="Send digest via Telegram")
+    p_digest.add_argument("--notify-email", action="store_true", help="Send digest via Email")
+    p_digest.add_argument("--hours", type=int, default=24, help="Look back this many hours (default: 24)")
+
     return p
 
 
@@ -286,6 +385,9 @@ def main() -> int:
 
         schedmod.run_forever(add_jobs)
         return 0
+
+    elif args.command == "digest":
+        return cmd_digest(args.notify_telegram, getattr(args, "notify_email", False), getattr(args, "hours", 24))
 
     else:
         raise SystemExit(2)
