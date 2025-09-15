@@ -20,7 +20,7 @@ from . import scheduler as schedmod
 log = get_logger("main")
 
 
-def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False, price_delta_pct: float | None = None, alert_on_availability: bool | None = None, notify_email: bool = False, user_agent_override: str | None = None) -> int:
+def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False, price_delta_pct: float | None = None, alert_on_availability: bool | None = None, notify_email: bool = False, user_agent_override: str | None = None, write_on_change_only: bool = False) -> int:
     """Fetch the URL once, parse key fields, optionally write to Google Sheets and notify."""
     resp = http_get(url, user_agent_override=user_agent_override)
     html = resp.text
@@ -64,7 +64,12 @@ def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_a
     log.info(f"Diff: {summary}")
 
     if write_to_sheet:
-        sheets.write_product_row(data)
+        write_on_change_only_env = os.getenv("WRITE_ON_CHANGE_ONLY", "").strip().lower() in ("1","true","yes","y")
+        write_on_change_only_final = write_on_change_only or write_on_change_only_env
+        if not (write_on_change_only_final and not changed):
+            sheets.write_product_row(data)
+        else:
+            log.info("Skipped writing row (WRITE_ON_CHANGE_ONLY enabled and no change detected)")
 
     if notify_telegram and (changed or notify_always):
         title = (data.get("title") or "<no title>")
@@ -191,6 +196,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="If set, send an Email alert when key fields change.",
     )
+    p_run.add_argument(
+        "--write-on-change-only",
+        action="store_true",
+        help="If set, only write to sheet when a change is detected.",
+    )
 
     # run_list
     p_list = sub.add_parser("run_list", help="Run over URLs listed in the Inputs sheet")
@@ -258,6 +268,7 @@ def main() -> int:
             price_delta_pct=None,
             alert_on_availability=None,
             notify_email=getattr(args, "notify_email", False),
+            write_on_change_only=getattr(args, "write_on_change_only", False),
         )
 
     elif args.command == "run_list":
