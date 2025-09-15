@@ -3,6 +3,7 @@ import argparse
 import time
 from functools import partial
 from urllib.parse import urlparse
+import os
 
 from .log import setup_logging, get_logger
 from .fetch import http_get
@@ -13,13 +14,13 @@ from .parse.ebay import parse_product as parse_ebay
 from . import sheets
 from .sheets import append_log
 from .diff import diff_product
-from .alerts import send_telegram_message
+from .alerts import send_telegram_message, send_email_alert
 from . import scheduler as schedmod
 
 log = get_logger("main")
 
 
-def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False, price_delta_pct: float | None = None, alert_on_availability: bool | None = None) -> int:
+def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False, price_delta_pct: float | None = None, alert_on_availability: bool | None = None, notify_email: bool = False) -> int:
     """Fetch the URL once, parse key fields, optionally write to Google Sheets and notify."""
     resp = http_get(url)
     html = resp.text
@@ -70,6 +71,11 @@ def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_a
         prefix = "Price/stock change for:" if changed else "Status snapshot for:"
         msg = f"{prefix} {title}\n{summary}\n{url}"
         send_telegram_message(msg)
+
+    if notify_email or os.getenv("NOTIFY_EMAIL", "").strip().lower() in ("1","true","yes","y"):
+        subject = f"[Tracker] {'Change' if changed else 'Snapshot'}: {data.get('title') or '<no title>'}"
+        body = f"{summary}\n{url}"
+        send_email_alert(subject, body)
 
     try:
         append_log(
@@ -178,6 +184,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="If set, send a Telegram message even when nothing changed.",
     )
+    p_run.add_argument(
+        "--notify-email",
+        action="store_true",
+        help="If set, send an Email alert when key fields change.",
+    )
 
     # run_list
     p_list = sub.add_parser("run_list", help="Run over URLs listed in the Inputs sheet")
@@ -237,7 +248,15 @@ def main() -> int:
     args = build_parser().parse_args()
 
     if args.command == "run_once":
-        return cmd_run_once(args.url, args.write_to_sheet, args.notify_telegram, getattr(args, "notify_always", False))
+        return cmd_run_once(
+            args.url,
+            args.write_to_sheet,
+            args.notify_telegram,
+            getattr(args, "notify_always", False),
+            price_delta_pct=None,
+            alert_on_availability=None,
+            notify_email=getattr(args, "notify_email", False),
+        )
 
     elif args.command == "run_list":
         return cmd_run_list(args.write_to_sheet, args.notify_telegram, args.sleep_seconds)

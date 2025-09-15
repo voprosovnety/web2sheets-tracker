@@ -1,6 +1,8 @@
 from __future__ import annotations
 import os
 import requests
+import smtplib
+from email.message import EmailMessage
 from .log import get_logger
 from . import config  # ensure .env is loaded via load_dotenv()
 
@@ -32,3 +34,46 @@ def send_telegram_message(text: str) -> None:
             log.info("Telegram message sent")
     except Exception as e:
         log.warning("Telegram send exception: %r", e)
+
+
+def send_email_alert(subject: str, body: str) -> None:
+    """Send a plain text email using SMTP with env vars.
+
+    Required env vars:
+      - SMTP_HOST
+      - SMTP_PORT
+      - SMTP_USER
+      - SMTP_PASSWORD
+      - ALERT_EMAIL_TO (comma-separated)
+    Optional:
+      - SMTP_USE_TLS (default true)
+    """
+    host = os.getenv("SMTP_HOST")
+    port = int(os.getenv("SMTP_PORT", "587"))
+    user = os.getenv("SMTP_USER")
+    pwd = os.getenv("SMTP_PASSWORD")
+    to_addrs = os.getenv("ALERT_EMAIL_TO")
+    use_tls = os.getenv("SMTP_USE_TLS", "true").strip().lower() in ("1","true","yes","y")
+
+    if not (host and port and user and pwd and to_addrs):
+        log.warning("Email not configured: missing SMTP_* or ALERT_EMAIL_TO")
+        return
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = user
+    msg["To"] = to_addrs
+    msg.set_content(body)
+
+    try:
+        if use_tls:
+            server = smtplib.SMTP(host, port, timeout=15)
+            server.starttls()
+        else:
+            server = smtplib.SMTP(host, port, timeout=15)
+        server.login(user, pwd)
+        server.send_message(msg)
+        server.quit()
+        log.info("Email alert sent to %s", to_addrs)
+    except Exception as e:
+        log.warning("Email send exception: %r", e)
