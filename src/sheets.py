@@ -116,6 +116,7 @@ def get_input_urls() -> List[Dict[str, object]]:
       - alert_on_availability(optional, truthy values)
       - delay_seconds        (optional, float)
       - user_agent           (optional, string)
+      - proxy                (optional, string: http(s)://user:pass@host:port)
 
     Returns list of dicts: {url, enabled, price_delta_pct, alert_on_availability}
     """
@@ -149,6 +150,7 @@ def get_input_urls() -> List[Dict[str, object]]:
     avail_idx = header.index("alert_on_availability") if "alert_on_availability" in header else None
     delay_idx = header.index("delay_seconds") if "delay_seconds" in header else None
     ua_idx = header.index("user_agent") if "user_agent" in header else None
+    proxy_idx = header.index("proxy") if "proxy" in header else None
 
     configs: List[Dict[str, object]] = []
     truthy = {"1", "true", "yes", "y"}
@@ -191,6 +193,11 @@ def get_input_urls() -> List[Dict[str, object]]:
             ua = (row[ua_idx] or "").strip()
             user_agent = ua or None
 
+        proxy: str | None = None
+        if proxy_idx is not None and proxy_idx < len(row):
+            p = (row[proxy_idx] or "").strip()
+            proxy = p or None
+
         configs.append(
             {
                 "url": url,
@@ -199,6 +206,7 @@ def get_input_urls() -> List[Dict[str, object]]:
                 "alert_on_availability": alert_on_avail,
                 "delay_seconds": delay_seconds,
                 "user_agent": user_agent,
+                "proxy": proxy,
             }
         )
 

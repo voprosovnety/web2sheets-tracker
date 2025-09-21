@@ -32,7 +32,7 @@ _UA_POOL = [
 ]
 
 
-def http_get(url: str, headers: t.Optional[Headers] = None, user_agent_override: str | None = None) -> requests.Response:
+def http_get(url: str, headers: t.Optional[Headers] = None, user_agent_override: str | None = None, proxy: str | None = None) -> requests.Response:
     """
     Perform a GET with retries and exponential backoff.
 
@@ -53,7 +53,10 @@ def http_get(url: str, headers: t.Optional[Headers] = None, user_agent_override:
             if not user_agent_override:
                 h["User-Agent"] = random.choice(_UA_POOL)
             h.setdefault("Referer", "https://www.google.com/")
-            resp = requests.get(url, headers=h, timeout=REQUEST_TIMEOUT)
+            proxies = None
+            if proxy:
+                proxies = {"http": proxy, "https": proxy}
+            resp = requests.get(url, headers=h, timeout=REQUEST_TIMEOUT, proxies=proxies)
             # Encoding correction: some servers send wrong or missing charset
             # (e.g., defaulting to ISO-8859-1) which yields artifacts like "Â£".
             # Prefer apparent_encoding when the declared encoding is missing or
@@ -89,7 +92,7 @@ def http_get(url: str, headers: t.Optional[Headers] = None, user_agent_override:
                 h_mobile = dict(h)
                 if not user_agent_override:
                     h_mobile["User-Agent"] = random.choice(_UA_POOL)
-                resp = requests.get(m_url, headers=h_mobile, timeout=REQUEST_TIMEOUT)
+                resp = requests.get(m_url, headers=h_mobile, timeout=REQUEST_TIMEOUT, proxies=proxies)
                 # Re-apply encoding fix
                 enc2 = (resp.encoding or "").lower()
                 if not enc2 or enc2 in ("iso-8859-1", "latin-1", "us-ascii"):

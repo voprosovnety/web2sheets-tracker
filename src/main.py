@@ -41,9 +41,9 @@ def _time_to_cron(time_str: str) -> str:
 def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False,
                  price_delta_pct: float | None = None, alert_on_availability: bool | None = None,
                  notify_email: bool = False, user_agent_override: str | None = None,
-                 write_on_change_only: bool = False) -> int:
+                 write_on_change_only: bool = False, proxy: str | None = None) -> int:
     """Fetch the URL once, parse key fields, optionally write to Google Sheets and notify."""
-    resp = http_get(url, user_agent_override=user_agent_override)
+    resp = http_get(url, user_agent_override=user_agent_override, proxy=proxy)
     html = resp.text
     status = resp.status_code
     log.info(f"Status: {status}")
@@ -166,6 +166,7 @@ def cmd_run_list(write_to_sheet: bool, notify_telegram: bool, sleep_seconds: flo
                 price_delta_pct=cfg.get("price_delta_pct"),
                 alert_on_availability=cfg.get("alert_on_availability"),
                 user_agent_override=cfg.get("user_agent"),
+                proxy=cfg.get("proxy"),
             )
         except Exception as e:
             log.warning("Run failed for %s: %r", url, e)
