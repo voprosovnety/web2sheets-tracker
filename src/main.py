@@ -20,6 +20,24 @@ from . import scheduler as schedmod
 log = get_logger("main")
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.strip().lower() in ("1", "true", "yes", "y")
+
+
+def _time_to_cron(time_str: str) -> str:
+    """Convert 'HH:MM' (24h) into a cron expression 'MM HH * * *'. Fallback to 09:00 if parse fails."""
+    try:
+        hh, mm = time_str.strip().split(":", 1)
+        h = max(0, min(23, int(hh)))
+        m = max(0, min(59, int(mm)))
+    except Exception:
+        h, m = 9, 0
+    return f"{m} {h} * * *"
+
+
 def cmd_run_once(url: str, write_to_sheet: bool, notify_telegram: bool, notify_always: bool = False,
                  price_delta_pct: float | None = None, alert_on_availability: bool | None = None,
                  notify_email: bool = False, user_agent_override: str | None = None,
@@ -349,7 +367,41 @@ def build_parser() -> argparse.ArgumentParser:
     p_digest = sub.add_parser("digest", help="Send a digest of recent changes")
     p_digest.add_argument("--notify-telegram", action="store_true", help="Send digest via Telegram")
     p_digest.add_argument("--notify-email", action="store_true", help="Send digest via Email")
-    p_digest.add_argument("--hours", type=int, default=24, help="Look back this many hours (default: 24)")
+    p_digest.add_argument(
+        "--hours",
+        type=int,
+        default=int(os.getenv("DIGEST_HOURS_DEFAULT", os.getenv("DIGEST_HOURS", "24"))),
+        help="Look back this many hours (env DIGEST_HOURS_DEFAULT or DIGEST_HOURS; default: 24)",
+    )
+
+    # schedule_daily_digest
+    p_sdd = sub.add_parser(
+        "schedule_daily_digest",
+        help="Schedule a daily digest at a fixed local time (uses cron under the hood)",
+    )
+    p_sdd.add_argument(
+        "--time",
+        default=os.getenv("DAILY_DIGEST_TIME", "09:00"),
+        help="Local time HH:MM (default from DAILY_DIGEST_TIME or 09:00)",
+    )
+    p_sdd.add_argument(
+        "--hours",
+        type=int,
+        default=int(os.getenv("DIGEST_HOURS_DEFAULT", os.getenv("DIGEST_HOURS", "24"))),
+        help="Lookback window in hours for the digest (env DIGEST_HOURS_DEFAULT or DIGEST_HOURS)",
+    )
+    p_sdd.add_argument(
+        "--notify-telegram",
+        action="store_true",
+        default=_env_bool("DIGEST_NOTIFY_TELEGRAM", True),
+        help="Send digest via Telegram (default from DIGEST_NOTIFY_TELEGRAM, default true)",
+    )
+    p_sdd.add_argument(
+        "--notify-email",
+        action="store_true",
+        default=_env_bool("DIGEST_NOTIFY_EMAIL", _env_bool("NOTIFY_EMAIL", False)),
+        help="Send digest via Email (default from DIGEST_NOTIFY_EMAIL or NOTIFY_EMAIL)",
+    )
 
     return p
 
@@ -388,6 +440,21 @@ def main() -> int:
 
     elif args.command == "digest":
         return cmd_digest(args.notify_telegram, getattr(args, "notify_email", False), getattr(args, "hours", 24))
+
+    elif args.command == "schedule_daily_digest":
+        # Build a job that runs the digest with configured flags
+        job = lambda: cmd_digest(
+            notify_telegram=getattr(args, "notify_telegram", True),
+            notify_email=getattr(args, "notify_email", False),
+            hours=getattr(args, "hours", 24),
+        )
+
+        def add_jobs(s):
+            cron = _time_to_cron(getattr(args, "time", os.getenv("DAILY_DIGEST_TIME", "09:00")))
+            schedmod.add_cron_job(s, job, cron, job_id="daily_digest")
+
+        schedmod.run_forever(add_jobs)
+        return 0
 
     else:
         raise SystemExit(2)

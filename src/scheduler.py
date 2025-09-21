@@ -43,6 +43,7 @@ def run_forever(add_jobs: Callable[[BackgroundScheduler], None]) -> None:
             time.sleep(1)
 
 
+
 def add_interval_job(
     sched: BackgroundScheduler,
     func: Callable,
@@ -56,6 +57,32 @@ def add_interval_job(
     trigger = IntervalTrigger(minutes=every_minutes, jitter=jitter_seconds)
     sched.add_job(func, trigger=trigger, id=job_id, max_instances=1, coalesce=True)
     log.info("Added interval job: every %d min (jitter ~%ds)", every_minutes, jitter_seconds)
+
+
+# --- New helper: add_daily_at ---
+
+def add_daily_at(
+    sched: BackgroundScheduler,
+    func: Callable,
+    time_str: str = "09:00",
+    job_id: Optional[str] = None,
+) -> None:
+    """Add a daily job at local time HH:MM (24h format).
+
+    Example: add_daily_at(sched, func, "09:00")  # every day at 09:00 local time
+    """
+    try:
+        hh, mm = time_str.split(":", 1)
+        hh_i = int(hh)
+        mm_i = int(mm)
+        if not (0 <= hh_i <= 23 and 0 <= mm_i <= 59):
+            raise ValueError
+    except Exception:
+        raise ValueError("time_str must be 'HH:MM' in 24h format, e.g. '09:00'")
+
+    trigger = CronTrigger(minute=str(mm_i), hour=str(hh_i))
+    sched.add_job(func, trigger=trigger, id=job_id, max_instances=1, coalesce=True)
+    log.info("Added daily job: %02d:%02d local time", hh_i, mm_i)
 
 
 def add_cron_job(
