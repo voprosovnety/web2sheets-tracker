@@ -253,3 +253,59 @@ def append_log(
     ]
     ws.append_row(row, value_input_option="USER_ENTERED")
     log.info("Log row appended.")
+
+
+# --- CSV export support ---
+def export_sheet_to_csv(sheet_name: str, out_path: str, since_hours: int | None = None) -> int:
+    """
+    Export rows from a given Google Sheet worksheet to a local CSV file.
+
+    Args:
+        sheet_name: Name of the worksheet/tab to export (e.g. "Snapshots")
+        out_path: Local filename to write the CSV to
+        since_hours: If set, only include rows whose first column (timestamp)
+                     is newer than now - since_hours. Assumes ISO8601 timestamp.
+
+    Returns:
+        0 on success
+    """
+    import csv
+    import datetime
+
+    sheet_id = os.getenv("GOOGLE_SHEET_ID")
+    if not sheet_id:
+        raise ValueError("GOOGLE_SHEET_ID is not set in .env")
+
+    client = _get_client()
+    sh = client.open_by_key(sheet_id)
+    ws = sh.worksheet(sheet_name)
+
+    rows = _get_all_rows(ws)
+    if not rows:
+        log.warning("No data in sheet '%s'", sheet_name)
+        return 1
+
+    header, *data_rows = rows
+
+    if since_hours is not None:
+        try:
+            cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=since_hours)
+            def _is_recent(row):
+                if not row or not row[0]:
+                    return False
+                try:
+                    ts = datetime.datetime.fromisoformat(row[0].replace("Z", ""))
+                    return ts >= cutoff
+                except Exception:
+                    return True  # if parse fails, include row
+            data_rows = [r for r in data_rows if _is_recent(r)]
+        except Exception as e:
+            log.warning("Failed to filter by since_hours: %r", e)
+
+    with open(out_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(data_rows)
+
+    log.info("Exported %d rows from sheet '%s' to %s", len(data_rows), sheet_name, out_path)
+    return 0

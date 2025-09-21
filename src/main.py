@@ -403,6 +403,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Send digest via Email (default from DIGEST_NOTIFY_EMAIL or NOTIFY_EMAIL)",
     )
 
+    # export_csv
+    p_export = sub.add_parser(
+        "export_csv",
+        help="Export rows from a given Google Sheet tab to a local CSV file",
+    )
+    p_export.add_argument(
+        "--sheet",
+        required=False,
+        default=os.getenv("EXPORT_DEFAULT_SHEET", "Snapshots"),
+        help="Sheet/tab name to export (default from EXPORT_DEFAULT_SHEET or 'Snapshots')",
+    )
+    p_export.add_argument(
+        "--out",
+        required=True,
+        help="Output CSV filename",
+    )
+    p_export.add_argument(
+        "--since-hours",
+        type=int,
+        default=None,
+        help="Only include rows with timestamp newer than this many hours ago (optional)",
+    )
+
     return p
 
 
@@ -456,6 +479,12 @@ def main() -> int:
         schedmod.run_forever(add_jobs)
         return 0
 
+    elif args.command == "export_csv":
+        return sheets.export_sheet_to_csv(
+            sheet_name=args.sheet,
+            out_path=args.out,
+            since_hours=getattr(args, "since_hours", None),
+        )
     else:
         raise SystemExit(2)
 
