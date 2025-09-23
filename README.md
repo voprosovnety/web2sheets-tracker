@@ -57,14 +57,30 @@ PYTHONPATH=. streamlit run src/dashboard.py
 ## .env Example
 Note: Set `GOOGLE_SHEET_ID` from your own Google Sheet.
 ```env
+# Google Sheets
 GOOGLE_SHEET_ID=your-google-sheet-id
 WRITE_ON_CHANGE_ONLY=true
-NOTIFY_EMAIL=false
+EXPORT_DEFAULT_SHEET=Snapshots
+
+# Digest
 DIGEST_HOURS_DEFAULT=24
 DAILY_DIGEST_TIME=09:00
-DIGEST_NOTIFY_TELEGRAM=true
+DIGEST_NOTIFY_TELEGRAM=false
 DIGEST_NOTIFY_EMAIL=false
-EXPORT_DEFAULT_SHEET=Snapshots
+
+# Telegram Alerts
+NOTIFY_TELEGRAM=false
+TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+TELEGRAM_CHAT_ID=your-chat-id
+
+# Email Alerts (SMTP)
+NOTIFY_EMAIL=false
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email
+SMTP_PASS=your-password
+SMTP_FROM=your-email
+SMTP_TO=recipient-email
 ```
 
 ## Project Catalog pitch
