@@ -24,7 +24,21 @@ import pandas as pd
 import streamlit as st
 
 # Reuse the existing Sheets helpers from the project
-from sheets import _get_client, _get_all_rows, export_sheet_to_csv  # type: ignore
+
+# Ensure we can import the package `src` when run by Streamlit
+
+import sys, os as _os
+_sys_root = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..'))
+if _sys_root not in sys.path:
+    sys.path.insert(0, _sys_root)
+
+# Load .env so Streamlit picks up environment variables
+from dotenv import load_dotenv
+# Load .env from CWD and (as a fallback) from project root
+load_dotenv()
+load_dotenv(dotenv_path=os.path.join(_sys_root, ".env"), override=False)
+
+from src.sheets import _get_client, _get_all_rows, export_sheet_to_csv  # type: ignore
 
 # ---- Helpers -----------------------------------------------------------------
 
@@ -57,20 +71,20 @@ def load_sheet(sheet_name: str) -> pd.DataFrame:
             df[col] = pd.to_datetime(df[col], errors="coerce")
             break  # prefer the first matching timestamp column
 
-    # Normalize price-like columns (best-effort)
+    # Normalize price-like columns (best-effort, any currency)
     for pcol in [c for c in df.columns if "price" in c.lower()]:
-        df[pcol] = (
+        # remove any currency symbols and letters, keep digits, dot and minus
+        cleaned = (
             df[pcol]
             .astype(str)
-            .str.replace("$", "", regex=False)
-            .str.replace(",", "", regex=False)
+            .str.replace(r"[^0-9.\-]", "", regex=True)
         )
-        df[pcol] = pd.to_numeric(df[pcol], errors="coerce")
+        df[pcol] = pd.to_numeric(cleaned, errors="coerce")
 
-    # Try to ensure an URL column exists for filtering
+    # Try to ensure a URL column exists for filtering
     if "url" not in df.columns:
         # Look for something similar
-        for cand in ("URL", "link", "product_url"):
+        for cand in ("URL", "link", "product_url", "source_url"):
             if cand in df.columns:
                 df.rename(columns={cand: "url"}, inplace=True)
                 break
@@ -156,12 +170,20 @@ if "url" in df.columns and len(url_options) > 0:
     chart_url = st.selectbox("Price chart URL", options=url_options, index=0)
 
 price_cols = [c for c in df.columns if "price" in c.lower()]
-if ts_col and chart_url and price_cols:
-    chart_df = df[df["url"] == chart_url][[ts_col] + price_cols].sort_values(ts_col)
-    chart_df = chart_df.set_index(ts_col)
-    st.line_chart(chart_df, height=280)
+if chart_url and price_cols:
+    sel = df[df.get("url", pd.Series([], dtype=str)) == chart_url].copy()
+    if ts_col:
+        chart_df = sel[[ts_col] + price_cols].sort_values(ts_col)
+        chart_df = chart_df.set_index(ts_col)
+        st.line_chart(chart_df, height=280)
+    else:
+        # Fallback: use row index as a pseudo time axis for visualization
+        sel = sel.reset_index(drop=True)
+        sel["row_idx"] = sel.index + 1
+        chart_df = sel[["row_idx"] + price_cols].tail(50).set_index("row_idx")
+        st.line_chart(chart_df, height=280)
 else:
-    st.caption("Add a price column (e.g., `price` or `price_usd`) and a timestamp column to enable charting.")
+    st.caption("Add a price column (e.g., `price` or `price_usd`). For time axis, include a timestamp column; otherwise we show a last-50 trend by row order.")
 
 st.subheader("Recent rows")
 st.dataframe(df.sort_values(ts_col or df.columns[0], ascending=False).head(500), use_container_width=True)
